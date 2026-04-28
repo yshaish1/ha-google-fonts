@@ -1,8 +1,9 @@
-const STYLE_ID = "ha-google-fonts-style";
 const LINK_ID = "ha-google-fonts-link";
+const OWN_TAGS = new Set(["ha-google-fonts-dialog", "ha-google-fonts-button"]);
 
 let sharedSheet: CSSStyleSheet | null = null;
 let currentFamily: string | undefined;
+const adoptedRoots = new WeakSet<ShadowRoot>();
 
 export function applyFont(fontFamily: string | undefined): void {
   currentFamily = fontFamily;
@@ -11,20 +12,23 @@ export function applyFont(fontFamily: string | undefined): void {
     return;
   }
   injectFontLink(fontFamily);
-  applyStyles(fontFamily);
+  ensureSheet(fontFamily);
+  adoptIntoDashboard();
 }
 
 export function reapplyToNewRoots(): void {
-  if (!currentFamily) return;
-  applyStyles(currentFamily);
+  if (!currentFamily || !sharedSheet) return;
+  adoptIntoDashboard();
 }
 
 export function removeFont(): void {
   document.getElementById(LINK_ID)?.remove();
-  document.getElementById(STYLE_ID)?.remove();
   if (sharedSheet) {
-    forEachShadowRoot((root) => {
-      root.adoptedStyleSheets = root.adoptedStyleSheets.filter((s) => s !== sharedSheet);
+    const sheet = sharedSheet;
+    walkAllShadowRoots((root) => {
+      if (root.adoptedStyleSheets.includes(sheet)) {
+        root.adoptedStyleSheets = root.adoptedStyleSheets.filter((s) => s !== sheet);
+      }
     });
     sharedSheet = null;
   }
@@ -47,7 +51,7 @@ function injectFontLink(family: string): void {
 function buildCss(family: string): string {
   const stack = `"${family}", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
   return `
-    :root, :host {
+    :host {
       --paper-font-common-base_-_font-family: ${stack} !important;
       --paper-font-body1_-_font-family: ${stack} !important;
       --paper-font-subhead_-_font-family: ${stack} !important;
@@ -62,62 +66,68 @@ function buildCss(family: string): string {
   `;
 }
 
-function applyStyles(family: string): void {
-  const css = buildCss(family);
+function ensureSheet(family: string): void {
+  if (!sharedSheet) sharedSheet = new CSSStyleSheet();
+  sharedSheet.replaceSync(buildCss(family));
+}
 
-  if (!sharedSheet) {
-    if ("adoptedStyleSheets" in Document.prototype) {
-      sharedSheet = new CSSStyleSheet();
+function adoptIntoDashboard(): void {
+  if (!sharedSheet) return;
+  const viewRoot = findDashboardViewRoot();
+  if (!viewRoot) return;
+  walkBelow(viewRoot, (root) => {
+    if (adoptedRoots.has(root)) return;
+    if (!root.adoptedStyleSheets.includes(sharedSheet!)) {
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, sharedSheet!];
     }
-  }
-  if (sharedSheet) {
-    sharedSheet.replaceSync(css);
-  }
-
-  upsertDocStyle(css);
-
-  forEachShadowRoot((root) => {
-    if (sharedSheet && !root.adoptedStyleSheets.includes(sharedSheet)) {
-      root.adoptedStyleSheets = [...root.adoptedStyleSheets, sharedSheet];
-    } else if (!sharedSheet) {
-      upsertStyleInRoot(root, css);
-    }
+    adoptedRoots.add(root);
   });
 }
 
-function upsertDocStyle(css: string): void {
-  let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
-  if (!style) {
-    style = document.createElement("style");
-    style.id = STYLE_ID;
-    document.head.appendChild(style);
-  }
-  if (style.textContent !== css) style.textContent = css;
+function findDashboardViewRoot(): Element | null {
+  const ha = document.querySelector("home-assistant");
+  if (!ha?.shadowRoot) return null;
+  const main = ha.shadowRoot.querySelector("home-assistant-main");
+  if (!main?.shadowRoot) return null;
+  const resolver = main.shadowRoot.querySelector("partial-panel-resolver");
+  const panel = resolver?.querySelector("ha-panel-lovelace") as HTMLElement | null;
+  if (!panel?.shadowRoot) return null;
+  const huiRoot = panel.shadowRoot.querySelector("hui-root") as HTMLElement | null;
+  if (!huiRoot?.shadowRoot) return null;
+  // Prefer the view container so the toolbar/header in hui-root stays untouched.
+  return (huiRoot.shadowRoot.querySelector("#view, hui-view") ?? huiRoot) as Element;
 }
 
-function upsertStyleInRoot(root: ShadowRoot, css: string): void {
-  let style = root.getElementById(STYLE_ID) as HTMLStyleElement | null;
-  if (!style) {
-    style = document.createElement("style");
-    style.id = STYLE_ID;
-    root.appendChild(style);
-  }
-  if (style.textContent !== css) style.textContent = css;
+function walkBelow(start: Element, fn: (root: ShadowRoot) => void): void {
+  const visited = new WeakSet<ShadowRoot>();
+
+  const walk = (node: Element | ShadowRoot) => {
+    if (node instanceof Element && node.shadowRoot && !visited.has(node.shadowRoot)) {
+      const tag = node.tagName.toLowerCase();
+      if (!OWN_TAGS.has(tag)) {
+        visited.add(node.shadowRoot);
+        fn(node.shadowRoot);
+      }
+      walk(node.shadowRoot);
+    }
+    const children = (node as ParentNode).children;
+    if (children) {
+      for (const child of Array.from(children)) {
+        walk(child);
+      }
+    }
+  };
+
+  walk(start);
 }
 
-const OWN_TAGS = new Set(["ha-google-fonts-dialog", "ha-google-fonts-button"]);
-
-function forEachShadowRoot(fn: (root: ShadowRoot) => void): void {
+function walkAllShadowRoots(fn: (root: ShadowRoot) => void): void {
   const visited = new WeakSet<ShadowRoot>();
 
   const walk = (node: Element | ShadowRoot) => {
     if (node instanceof Element && node.shadowRoot && !visited.has(node.shadowRoot)) {
       visited.add(node.shadowRoot);
-      // Skip our own components so the picker preview rows can render in
-      // their per-row Google Font instead of the globally-applied override.
-      if (!OWN_TAGS.has(node.tagName.toLowerCase())) {
-        fn(node.shadowRoot);
-      }
+      fn(node.shadowRoot);
       walk(node.shadowRoot);
     }
     const children = (node as ParentNode).children;

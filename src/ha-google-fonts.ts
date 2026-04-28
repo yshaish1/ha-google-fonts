@@ -4,7 +4,7 @@ import { waitForHass, loadPrefs } from "./ha-storage.js";
 import { applyFont, reapplyToNewRoots } from "./font-injector.js";
 import type { Hass } from "./types.js";
 
-const VERSION = "0.1.4";
+const VERSION = "0.1.5";
 
 declare global {
   interface Window {
