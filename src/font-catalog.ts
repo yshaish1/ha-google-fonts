@@ -25,10 +25,10 @@ export async function loadCatalog(apiKey: string, force = false): Promise<Google
   return items;
 }
 
-export function searchFonts(items: GoogleFont[], query: string, limit = 50): GoogleFont[] {
+export function searchFonts(items: GoogleFont[], query: string): GoogleFont[] {
   const q = query.trim().toLowerCase();
-  if (!q) return items.slice(0, limit);
-  return items.filter((f) => f.family.toLowerCase().includes(q)).slice(0, limit);
+  if (!q) return items;
+  return items.filter((f) => f.family.toLowerCase().includes(q));
 }
 
 function readCache(): GoogleFontsCatalog | null {

@@ -19,6 +19,7 @@ export class HaGoogleFontsDialog extends LitElement {
   @state() private _loading = false;
   @state() private _error: string | undefined;
   private _previewedFamilies = new Set<string>();
+  private _io?: IntersectionObserver;
 
   async open(): Promise<void> {
     if (!this.hass) return;
@@ -32,6 +33,39 @@ export class HaGoogleFontsDialog extends LitElement {
 
   close(): void {
     this._open = false;
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this._io?.disconnect();
+    this._io = undefined;
+  }
+
+  updated(): void {
+    if (!this._open) return;
+    const list = this.renderRoot.querySelector(".font-list");
+    if (!list) return;
+    if (!this._io) {
+      this._io = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const family = (entry.target as HTMLElement).dataset.family;
+            if (family) {
+              this._ensurePreviewLoaded(family);
+              this._io?.unobserve(entry.target);
+            }
+          }
+        },
+        { root: list, rootMargin: "200px 0px" }
+      );
+    }
+    for (const row of list.querySelectorAll<HTMLElement>("li.row")) {
+      const family = row.dataset.family;
+      if (family && !this._previewedFamilies.has(family)) {
+        this._io.observe(row);
+      }
+    }
   }
 
   render() {
@@ -76,7 +110,7 @@ export class HaGoogleFontsDialog extends LitElement {
   }
 
   private _renderPicker() {
-    const visible = searchFonts(this._fonts, this._query, 80);
+    const visible = searchFonts(this._fonts, this._query);
     return html`
       <section class="picker">
         <input
@@ -85,6 +119,11 @@ export class HaGoogleFontsDialog extends LitElement {
           .value=${this._query}
           @input=${(e: InputEvent) => (this._query = (e.target as HTMLInputElement).value)}
         />
+        <div class="count">
+          ${this._loading
+            ? "Loading catalog…"
+            : `${visible.length} of ${this._fonts.length} fonts`}
+        </div>
         <ul class="font-list">
           ${this._loading
             ? html`<li class="muted">Loading catalog…</li>`
@@ -108,11 +147,11 @@ export class HaGoogleFontsDialog extends LitElement {
   }
 
   private _renderFontRow(font: GoogleFont) {
-    this._ensurePreviewLoaded(font.family);
     const checked = this._selected === font.family;
     return html`
       <li
         class=${checked ? "row selected" : "row"}
+        data-family=${font.family}
         @click=${() => (this._selected = font.family)}
       >
         <div class="row-name" style="font-family: '${font.family}', sans-serif;">${font.family}</div>
@@ -226,15 +265,21 @@ export class HaGoogleFontsDialog extends LitElement {
       color: var(--primary-text-color, #000);
       margin-bottom: 12px;
     }
+    .count {
+      font-size: 12px; color: var(--secondary-text-color, #555);
+      margin: -6px 0 8px; text-align: right;
+    }
     .font-list {
       list-style: none; padding: 0; margin: 0 0 12px;
       max-height: 50vh; overflow-y: auto;
       border: 1px solid var(--divider-color, #e0e0e0); border-radius: 8px;
+      contain: content;
     }
     .row {
       padding: 10px 14px; cursor: pointer;
       border-bottom: 1px solid var(--divider-color, #f0f0f0);
       transition: background 120ms;
+      contain: layout paint;
     }
     .row:last-child { border-bottom: none; }
     .row:hover { background: var(--secondary-background-color, #f5f5f5); }
