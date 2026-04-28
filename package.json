@@ -1,6 +1,6 @@
 {
   "name": "ha-google-fonts",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "Per-user Google Fonts picker for the Home Assistant Lovelace dashboard.",
   "author": "yshaish",
   "license": "MIT",

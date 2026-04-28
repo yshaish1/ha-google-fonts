@@ -8,7 +8,7 @@ A Lovelace frontend plugin that lets each Home Assistant user pick any font from
 | --- | --- | --- |
 | ![Searchable picker showing the full Google Fonts catalog with each row rendered in its own typeface](docs/picker.png) | ![Dashboard rendered in a script font, every card affected](docs/dashboard.png) | ![Small gear button anchored to the dashboard corner](docs/button.png) |
 
-- **Per-user**: each HA user picks their own font (uses HA's `frontend.set_user_data`).
+- **Per-user, per-dashboard**: each HA user picks a font on each dashboard separately. Stored via HA's `frontend.set_user_data`. The float button shows a colored dot when the current dashboard has a custom font.
 - **All Google Fonts**: full live catalog (~1700 families), searchable.
 - **Live preview**: every row in the picker renders in its own font.
 - **Lovelace scope**: applies to dashboard cards/views (the part you actually look at). Sidebar, settings, and dialogs are intentionally untouched in v1.

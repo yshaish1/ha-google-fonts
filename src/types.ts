@@ -3,9 +3,16 @@ export interface HassConnection {
   subscribeEvents(cb: (ev: unknown) => void, eventType: string): Promise<() => void>;
 }
 
+export interface HassPanel {
+  url_path: string;
+  title?: string | null;
+  component_name?: string;
+}
+
 export interface Hass {
   connection: HassConnection;
   user?: { id: string; name: string };
+  panels?: Record<string, HassPanel>;
 }
 
 export interface HomeAssistantElement extends HTMLElement {
@@ -13,8 +20,10 @@ export interface HomeAssistantElement extends HTMLElement {
 }
 
 export interface UserPrefs {
-  fontFamily?: string;
   apiKey?: string;
+  fonts?: Record<string, string>;
+  /** @deprecated retained only for migration from <0.2.0 */
+  fontFamily?: string;
 }
 
 export interface GoogleFont {

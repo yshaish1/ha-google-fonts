@@ -2,7 +2,7 @@ import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { GoogleFont, Hass, UserPrefs } from "./types.js";
 import { loadCatalog, searchFonts, clearCatalogCache } from "./font-catalog.js";
-import { loadPrefs, savePrefs } from "./ha-storage.js";
+import { loadPrefs, savePrefs, currentDashboardId, dashboardTitle } from "./ha-storage.js";
 import { applyFont } from "./font-injector.js";
 
 const PREVIEW_TEXT = "The quick brown fox 0123";
@@ -11,13 +11,14 @@ const PREVIEW_TEXT = "The quick brown fox 0123";
 export class HaGoogleFontsDialog extends LitElement {
   @property({ attribute: false }) hass?: Hass;
   @state() private _open = false;
-  @state() private _prefs: UserPrefs = {};
+  @state() private _prefs: UserPrefs = { fonts: {} };
   @state() private _fonts: GoogleFont[] = [];
   @state() private _query = "";
   @state() private _selected: string | undefined;
   @state() private _apiKeyInput = "";
   @state() private _loading = false;
   @state() private _error: string | undefined;
+  @state() private _dashId = "";
   private _previewedFamilies = new Set<string>();
   private _io?: IntersectionObserver;
 
@@ -25,8 +26,9 @@ export class HaGoogleFontsDialog extends LitElement {
     if (!this.hass) return;
     this._open = true;
     this._error = undefined;
+    this._dashId = currentDashboardId();
     this._prefs = await loadPrefs(this.hass);
-    this._selected = this._prefs.fontFamily;
+    this._selected = this._prefs.fonts?.[this._dashId];
     this._apiKeyInput = this._prefs.apiKey ?? "";
     if (this._prefs.apiKey) await this._fetchCatalog(this._prefs.apiKey);
   }
@@ -70,11 +72,15 @@ export class HaGoogleFontsDialog extends LitElement {
 
   render() {
     if (!this._open) return nothing;
+    const dashName = dashboardTitle(this.hass, this._dashId);
     return html`
       <div class="overlay" @click=${this._onOverlayClick}>
         <div class="dialog" @click=${(e: Event) => e.stopPropagation()}>
           <header>
-            <h2>Dashboard font</h2>
+            <div>
+              <h2>Dashboard font</h2>
+              <div class="subtitle">for: ${dashName}</div>
+            </div>
             <button class="icon" @click=${this.close} title="Close">×</button>
           </header>
           ${!this._prefs.apiKey ? this._renderApiKeyGate() : this._renderPicker()}
@@ -111,6 +117,7 @@ export class HaGoogleFontsDialog extends LitElement {
 
   private _renderPicker() {
     const visible = searchFonts(this._fonts, this._query);
+    const current = this._prefs.fonts?.[this._dashId];
     return html`
       <section class="picker">
         <input
@@ -132,11 +139,15 @@ export class HaGoogleFontsDialog extends LitElement {
               : visible.map((f) => this._renderFontRow(f))}
         </ul>
         <div class="actions">
-          <button class="ghost" @click=${this._reset}>Reset to default</button>
-          <button class="ghost" @click=${this._refreshCatalog} ?disabled=${this._loading}>Refresh catalog</button>
+          <button class="ghost" ?disabled=${!current} @click=${this._reset}>
+            Reset to default
+          </button>
+          <button class="ghost" @click=${this._refreshCatalog} ?disabled=${this._loading}>
+            Refresh catalog
+          </button>
           <button
             class="primary"
-            ?disabled=${!this._selected || this._selected === this._prefs.fontFamily}
+            ?disabled=${!this._selected || this._selected === current}
             @click=${this._apply}
           >
             Apply
@@ -209,22 +220,33 @@ export class HaGoogleFontsDialog extends LitElement {
 
   private async _apply(): Promise<void> {
     if (!this.hass || !this._selected) return;
-    const next: UserPrefs = { ...this._prefs, fontFamily: this._selected };
+    const fonts = { ...(this._prefs.fonts ?? {}), [this._dashId]: this._selected };
+    const next: UserPrefs = { ...this._prefs, fonts };
     await savePrefs(this.hass, next);
     this._prefs = next;
     applyFont(this._selected);
-    document.dispatchEvent(new CustomEvent("ha-google-fonts:changed", { detail: this._selected }));
+    document.dispatchEvent(
+      new CustomEvent("ha-google-fonts:changed", {
+        detail: { dashboardId: this._dashId, family: this._selected },
+      })
+    );
     this.close();
   }
 
   private async _reset(): Promise<void> {
     if (!this.hass) return;
-    const next: UserPrefs = { ...this._prefs, fontFamily: undefined };
+    const fonts = { ...(this._prefs.fonts ?? {}) };
+    delete fonts[this._dashId];
+    const next: UserPrefs = { ...this._prefs, fonts };
     await savePrefs(this.hass, next);
     this._prefs = next;
     this._selected = undefined;
     applyFont(undefined);
-    document.dispatchEvent(new CustomEvent("ha-google-fonts:changed", { detail: undefined }));
+    document.dispatchEvent(
+      new CustomEvent("ha-google-fonts:changed", {
+        detail: { dashboardId: this._dashId, family: undefined },
+      })
+    );
     this.close();
   }
 
@@ -246,8 +268,10 @@ export class HaGoogleFontsDialog extends LitElement {
     header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 16px 20px; border-bottom: 1px solid var(--divider-color, #e0e0e0);
+      gap: 12px;
     }
     h2 { margin: 0; font-size: 18px; font-weight: 500; }
+    .subtitle { font-size: 12px; color: var(--secondary-text-color, #555); margin-top: 2px; }
     .icon {
       background: none; border: none; font-size: 24px; cursor: pointer;
       color: var(--secondary-text-color, #555); padding: 0 4px;

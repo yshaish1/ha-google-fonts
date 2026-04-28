@@ -5,13 +5,16 @@ import type { Hass } from "./types.js";
 @customElement("ha-google-fonts-button")
 export class HaGoogleFontsButton extends LitElement {
   @property({ attribute: false }) hass?: Hass;
+  @property({ type: Boolean, reflect: true }) active = false;
+  @property({ type: Boolean, reflect: true }) hidden = false;
 
   render() {
     return html`
-      <button title="Dashboard font" @click=${this._open}>
+      <button title=${this.active ? "Custom font active - click to change" : "Dashboard font"} @click=${this._open}>
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
           <path fill="currentColor" d="M9.93 13.5h4.14L12 7.98zM20 2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-4.05 16.5l-1.14-3H9.17l-1.12 3H5.96l5.11-13h1.86l5.11 13z"/>
         </svg>
+        ${this.active ? html`<span class="dot" aria-label="Custom font active"></span>` : null}
       </button>
     `;
   }
@@ -36,7 +39,9 @@ export class HaGoogleFontsButton extends LitElement {
       position: fixed; right: 16px; bottom: 16px;
       z-index: 1000;
     }
+    :host([hidden]) { display: none; }
     button {
+      position: relative;
       width: 40px; height: 40px;
       border-radius: 50%;
       border: none; cursor: pointer;
@@ -47,6 +52,15 @@ export class HaGoogleFontsButton extends LitElement {
       opacity: 0.65; transition: opacity 150ms, transform 150ms;
     }
     button:hover { opacity: 1; transform: scale(1.05); }
+    :host([active]) button { opacity: 1; }
+    .dot {
+      position: absolute;
+      top: 6px; right: 6px;
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--primary-color, #03a9f4);
+      box-shadow: 0 0 0 2px var(--card-background-color, #fff);
+    }
   `;
 }
 

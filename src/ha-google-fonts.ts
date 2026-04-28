@@ -1,10 +1,10 @@
 import "./settings-dialog.js";
 import "./floating-button.js";
-import { waitForHass, loadPrefs } from "./ha-storage.js";
+import { waitForHass, loadPrefs, currentDashboardId, isOnDashboard } from "./ha-storage.js";
 import { applyFont, reapplyToNewRoots } from "./font-injector.js";
-import type { Hass } from "./types.js";
+import type { Hass, UserPrefs } from "./types.js";
 
-const VERSION = "0.1.5";
+const VERSION = "0.2.0";
 
 declare global {
   interface Window {
@@ -21,6 +21,12 @@ function logBanner(): void {
   );
 }
 
+interface ButtonElement extends HTMLElement {
+  hass?: Hass;
+  active: boolean;
+  hidden: boolean;
+}
+
 async function boot(): Promise<void> {
   if (window.__haGoogleFontsBooted) return;
   window.__haGoogleFontsBooted = true;
@@ -28,23 +34,35 @@ async function boot(): Promise<void> {
 
   const hass = await waitForHass();
   const prefs = await loadPrefs(hass);
-  applyFont(prefs.fontFamily);
 
-  mountFloatingButton(hass);
-  watchForReinjection(prefs.fontFamily);
+  const button = mountFloatingButton(hass);
+
+  const sync = () => {
+    const id = currentDashboardId();
+    const family = prefs.fonts?.[id];
+    applyFont(family);
+    button.active = Boolean(family);
+    button.hidden = !isOnDashboard();
+  };
+
+  sync();
+  watchForReinjection(prefs, sync);
 }
 
-function mountFloatingButton(hass: Hass): void {
-  if (document.querySelector("ha-google-fonts-button")) return;
-  const btn = document.createElement("ha-google-fonts-button") as HTMLElement & { hass?: Hass };
+function mountFloatingButton(hass: Hass): ButtonElement {
+  let btn = document.querySelector("ha-google-fonts-button") as ButtonElement | null;
+  if (!btn) {
+    btn = document.createElement("ha-google-fonts-button") as ButtonElement;
+    document.body.appendChild(btn);
+  }
   btn.hass = hass;
-  document.body.appendChild(btn);
+  return btn;
 }
 
-function watchForReinjection(_initialFamily: string | undefined): void {
+function watchForReinjection(prefs: UserPrefs, sync: () => void): void {
   let scheduled = false;
 
-  const reapply = () => {
+  const onMutation = () => {
     if (scheduled) return;
     scheduled = true;
     requestAnimationFrame(() => {
@@ -53,12 +71,24 @@ function watchForReinjection(_initialFamily: string | undefined): void {
     });
   };
 
-  window.addEventListener("location-changed", reapply);
-  window.addEventListener("popstate", reapply);
+  const onNav = () => {
+    sync();
+  };
 
-  // Each new card mount creates fresh shadow roots; re-walk and adopt the shared
-  // stylesheet into them. Coalesced via rAF so a burst of mutations runs the walker once.
-  const observer = new MutationObserver(reapply);
+  window.addEventListener("location-changed", onNav);
+  window.addEventListener("popstate", onNav);
+
+  // ha-google-fonts:changed fires from the dialog when user applies/resets.
+  // detail: { dashboardId, family }
+  document.addEventListener("ha-google-fonts:changed", (e: Event) => {
+    const detail = (e as CustomEvent<{ dashboardId: string; family: string | undefined }>).detail;
+    prefs.fonts = { ...(prefs.fonts ?? {}) };
+    if (detail.family) prefs.fonts[detail.dashboardId] = detail.family;
+    else delete prefs.fonts[detail.dashboardId];
+    sync();
+  });
+
+  const observer = new MutationObserver(onMutation);
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
