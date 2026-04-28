@@ -1,20 +1,32 @@
 const STYLE_ID = "ha-google-fonts-style";
 const LINK_ID = "ha-google-fonts-link";
 
+let sharedSheet: CSSStyleSheet | null = null;
+let currentFamily: string | undefined;
+
 export function applyFont(fontFamily: string | undefined): void {
+  currentFamily = fontFamily;
   if (!fontFamily) {
     removeFont();
     return;
   }
   injectFontLink(fontFamily);
-  injectStyles(fontFamily);
+  applyStyles(fontFamily);
+}
+
+export function reapplyToNewRoots(): void {
+  if (!currentFamily) return;
+  applyStyles(currentFamily);
 }
 
 export function removeFont(): void {
   document.getElementById(LINK_ID)?.remove();
   document.getElementById(STYLE_ID)?.remove();
-  for (const root of collectShadowRoots()) {
-    root.getElementById(STYLE_ID)?.remove();
+  if (sharedSheet) {
+    forEachShadowRoot((root) => {
+      root.adoptedStyleSheets = root.adoptedStyleSheets.filter((s) => s !== sharedSheet);
+    });
+    sharedSheet = null;
   }
 }
 
@@ -46,52 +58,69 @@ function buildCss(family: string): string {
       --mdc-typography-font-family: ${stack} !important;
       --ha-card-header-font-family: ${stack} !important;
     }
-    ha-panel-lovelace, hui-root, hui-view, hui-section,
-    ha-card, .card-header, .card-content,
-    ha-card *, .ha-card *,
-    hui-grid-card, hui-vertical-stack-card, hui-horizontal-stack-card {
-      font-family: ${stack} !important;
-    }
+    * { font-family: ${stack} !important; }
   `;
 }
 
-function injectStyles(family: string): void {
+function applyStyles(family: string): void {
   const css = buildCss(family);
-  upsertStyle(document.head, css);
-  for (const root of collectShadowRoots()) {
-    upsertStyle(root, css);
-  }
-}
 
-function upsertStyle(parent: Document | ShadowRoot | HTMLElement, css: string): void {
-  const root = parent as { getElementById?: (id: string) => HTMLElement | null };
-  const existing = root.getElementById?.(STYLE_ID) as HTMLStyleElement | null | undefined;
-  if (existing) {
-    if (existing.textContent !== css) existing.textContent = css;
-    return;
-  }
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = css;
-  (parent as Node).appendChild(style);
-}
-
-function collectShadowRoots(): ShadowRoot[] {
-  const roots: ShadowRoot[] = [];
-  const ha = document.querySelector("home-assistant");
-  if (!ha?.shadowRoot) return roots;
-  roots.push(ha.shadowRoot);
-
-  const main = ha.shadowRoot.querySelector("home-assistant-main");
-  if (main?.shadowRoot) {
-    roots.push(main.shadowRoot);
-    const resolver = main.shadowRoot.querySelector("partial-panel-resolver");
-    const lovelace = resolver?.querySelector("ha-panel-lovelace") as HTMLElement | null;
-    if (lovelace?.shadowRoot) {
-      roots.push(lovelace.shadowRoot);
-      const huiRoot = lovelace.shadowRoot.querySelector("hui-root") as HTMLElement | null;
-      if (huiRoot?.shadowRoot) roots.push(huiRoot.shadowRoot);
+  if (!sharedSheet) {
+    if ("adoptedStyleSheets" in Document.prototype) {
+      sharedSheet = new CSSStyleSheet();
     }
   }
-  return roots;
+  if (sharedSheet) {
+    sharedSheet.replaceSync(css);
+  }
+
+  upsertDocStyle(css);
+
+  forEachShadowRoot((root) => {
+    if (sharedSheet && !root.adoptedStyleSheets.includes(sharedSheet)) {
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, sharedSheet];
+    } else if (!sharedSheet) {
+      upsertStyleInRoot(root, css);
+    }
+  });
+}
+
+function upsertDocStyle(css: string): void {
+  let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
+  if (!style) {
+    style = document.createElement("style");
+    style.id = STYLE_ID;
+    document.head.appendChild(style);
+  }
+  if (style.textContent !== css) style.textContent = css;
+}
+
+function upsertStyleInRoot(root: ShadowRoot, css: string): void {
+  let style = root.getElementById(STYLE_ID) as HTMLStyleElement | null;
+  if (!style) {
+    style = document.createElement("style");
+    style.id = STYLE_ID;
+    root.appendChild(style);
+  }
+  if (style.textContent !== css) style.textContent = css;
+}
+
+function forEachShadowRoot(fn: (root: ShadowRoot) => void): void {
+  const visited = new WeakSet<ShadowRoot>();
+
+  const walk = (node: Element | ShadowRoot) => {
+    if (node instanceof Element && node.shadowRoot && !visited.has(node.shadowRoot)) {
+      visited.add(node.shadowRoot);
+      fn(node.shadowRoot);
+      walk(node.shadowRoot);
+    }
+    const children = (node as ParentNode).children;
+    if (children) {
+      for (const child of Array.from(children)) {
+        walk(child);
+      }
+    }
+  };
+
+  walk(document.documentElement);
 }

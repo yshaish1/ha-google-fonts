@@ -1,10 +1,10 @@
 import "./settings-dialog.js";
 import "./floating-button.js";
 import { waitForHass, loadPrefs } from "./ha-storage.js";
-import { applyFont } from "./font-injector.js";
+import { applyFont, reapplyToNewRoots } from "./font-injector.js";
 import type { Hass } from "./types.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 declare global {
   interface Window {
@@ -41,8 +41,7 @@ function mountFloatingButton(hass: Hass): void {
   document.body.appendChild(btn);
 }
 
-function watchForReinjection(initialFamily: string | undefined): void {
-  let currentFamily = initialFamily;
+function watchForReinjection(_initialFamily: string | undefined): void {
   let scheduled = false;
 
   const reapply = () => {
@@ -50,21 +49,17 @@ function watchForReinjection(initialFamily: string | undefined): void {
     scheduled = true;
     requestAnimationFrame(() => {
       scheduled = false;
-      if (currentFamily) applyFont(currentFamily);
+      reapplyToNewRoots();
     });
   };
 
   window.addEventListener("location-changed", reapply);
   window.addEventListener("popstate", reapply);
 
-  // Dashboard remounts shadow DOMs on view change; re-inject when new nodes appear.
-  // Coalesced via rAF so the burst of mutations during a view switch only runs the walker once.
+  // Each new card mount creates fresh shadow roots; re-walk and adopt the shared
+  // stylesheet into them. Coalesced via rAF so a burst of mutations runs the walker once.
   const observer = new MutationObserver(reapply);
   observer.observe(document.body, { childList: true, subtree: true });
-
-  document.addEventListener("ha-google-fonts:changed", (e: Event) => {
-    currentFamily = (e as CustomEvent<string | undefined>).detail;
-  });
 }
 
 if (document.readyState === "loading") {
