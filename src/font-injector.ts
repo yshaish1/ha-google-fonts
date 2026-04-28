@@ -105,13 +105,19 @@ function upsertStyleInRoot(root: ShadowRoot, css: string): void {
   if (style.textContent !== css) style.textContent = css;
 }
 
+const OWN_TAGS = new Set(["ha-google-fonts-dialog", "ha-google-fonts-button"]);
+
 function forEachShadowRoot(fn: (root: ShadowRoot) => void): void {
   const visited = new WeakSet<ShadowRoot>();
 
   const walk = (node: Element | ShadowRoot) => {
     if (node instanceof Element && node.shadowRoot && !visited.has(node.shadowRoot)) {
       visited.add(node.shadowRoot);
-      fn(node.shadowRoot);
+      // Skip our own components so the picker preview rows can render in
+      // their per-row Google Font instead of the globally-applied override.
+      if (!OWN_TAGS.has(node.tagName.toLowerCase())) {
+        fn(node.shadowRoot);
+      }
       walk(node.shadowRoot);
     }
     const children = (node as ParentNode).children;

@@ -271,7 +271,7 @@ export class HaGoogleFontsDialog extends LitElement {
     }
     .font-list {
       list-style: none; padding: 0; margin: 0 0 12px;
-      max-height: 50vh; overflow-y: auto;
+      height: 60vh; max-height: 60vh; overflow-y: auto;
       border: 1px solid var(--divider-color, #e0e0e0); border-radius: 8px;
       contain: content;
     }
